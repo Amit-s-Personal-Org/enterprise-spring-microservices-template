@@ -557,11 +557,6 @@ npm test                       # Run tests
 
 ---
 
-## Author & Maintainer
-
-**Mohammad Awwaad**  
-*Senior Technical Architect* @ **InnovAxons**  
-GitLab: [@mawwaad](https://gitlab.com/mawwaad)
 
 ## License
 

@@ -1,15 +1,6 @@
-# Contributing to the InnovAxons Enterprise Template
+# Contributing to the Enterprise Template
 
 First off, thank you for considering contributing to this project! It's people like you that make the open-source community such an amazing place to learn, inspire, and create.
-
-## Project Maintainer
-
-This project is architected and maintained by the **InnovAxons** team:
-
-**Mohammad Awwaad**  
-*Senior Technical Architect*  
-GitLab: [@mawwaad](https://gitlab.com/mawwaad)  
-Email: mohamed.awwaad@gmail.com
 
 ---
 
