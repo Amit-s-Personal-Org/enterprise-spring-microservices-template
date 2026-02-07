@@ -91,7 +91,7 @@ A production-ready secure microservices template using **Spring Boot 4.x**, **Ke
 ### 1. Start Backend Services
 
 ```bash
-./manage_services.sh start
+./manage_backend.sh start
 ```
 
 This starts:
@@ -116,9 +116,8 @@ The `admin-service-client` needs permissions to manage users:
 ### 3. Start Angular UI
 
 ```bash
-cd angular-ui
-npm install
-npm start
+./manage_frontend.sh start
+
 ```
 
 ### 4. Access the Application
@@ -160,7 +159,7 @@ root_folder/
 ├── dependencies-bom/           # Dependency version management
 ├── docker/                     # Docker Compose configurations
 ├── docs/                       # Architecture documentation
-└── manage_services.sh          # Service management script
+└── manage_backend.sh          # Service management script
 ```
 
 ### Shared Libraries
@@ -233,13 +232,13 @@ All services support three logging profiles:
 
 ```bash
 # Default: Console output with trace correlation
-./manage_services.sh start
+./manage_backend.sh start
 
 # JSON: Structured JSON logs (for production/log shippers)
-SPRING_PROFILES_ACTIVE=json ./manage_services.sh start
+SPRING_PROFILES_ACTIVE=json ./manage_backend.sh start
 
 # Loki: Push logs directly to Loki
-SPRING_PROFILES_ACTIVE=loki ./manage_services.sh start
+SPRING_PROFILES_ACTIVE=loki ./manage_backend.sh start
 ```
 
 Log format includes trace correlation: `[traceId, spanId]` for linking logs to distributed traces.
@@ -497,19 +496,18 @@ All API errors return standardized [Problem Details](https://datatracker.ietf.or
 ### Commands
 
 ```bash
-./manage_services.sh start     # Start all services
-./manage_services.sh stop      # Stop all services
-./manage_services.sh restart   # Restart services
-./manage_services.sh test      # Run tests
+./manage_backend.sh start     # Start all services
+./manage_backend.sh stop      # Stop all services
+./manage_backend.sh restart   # Restart services
+./manage_backend.sh test      # Run tests
 ```
 
 ### Angular Development
 
 ```bash
-cd angular-ui
-npm start                      # Start dev server with proxy
-npm run build                  # Production build
-npm test                       # Run tests
+./manage_frontend.sh start      # Start dev server with proxy
+./manage_frontend.sh build      # Production build
+./manage_frontend.sh test       # Run tests
 ```
 
 ### Tech Stack

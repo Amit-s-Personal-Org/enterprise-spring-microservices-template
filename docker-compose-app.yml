@@ -1,0 +1,268 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # Infrastructure: Identity (Keycloak)
+  # ==========================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sec-network
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sec-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.4
+    container_name: keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-password}
+      KC_HTTP_ENABLED: true
+      KC_HTTP_PORT: 8080
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    volumes:
+      - ./keycloak/realm-config:/opt/keycloak/data/import
+    networks:
+      - sec-network
+
+  # ==========================================
+  # Infrastructure: Observability
+  # ==========================================
+  zipkin:
+    image: openzipkin/zipkin:3
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - sec-network
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sec-network
+
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - sec-network
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - loki
+      - zipkin
+      - prometheus
+    networks:
+      - sec-network
+
+  # ==========================================
+  # Infrastructure: Databases
+  # ==========================================
+  postgres-profile:
+    image: postgres:16
+    container_name: postgres-profile
+    environment:
+      POSTGRES_DB: profile_db
+      POSTGRES_USER: ${PROFILE_DB_USER:-profile_user}
+      POSTGRES_PASSWORD: ${PROFILE_DB_PASSWORD:-profile_password}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_profile_data:/var/lib/postgresql/data
+    networks:
+      - sec-network
+
+  postgres-order:
+    image: postgres:16
+    container_name: postgres-order
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: ${ORDER_DB_USER:-order_user}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD:-order_password}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_order_data:/var/lib/postgresql/data
+    networks:
+      - sec-network
+
+  # ==========================================
+  # Java Services
+  # ==========================================
+  bff:
+    build:
+      context: .
+      dockerfile: bff/Dockerfile
+    container_name: bff
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_REDIS_HOST=redis
+      - GATEWAY_URL=http://gateway:8888
+      - ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - LOKI_URL=http://loki:3100
+      - KEYCLOAK_ISSUER_URI=http://localhost:8080/realms/my-realm
+      - SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_TOKEN_URI=http://keycloak:8080/realms/my-realm/protocol/openid-connect/token
+      - SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_JWK_SET_URI=http://keycloak:8080/realms/my-realm/protocol/openid-connect/certs
+      - SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_AUTHORIZATION_URI=http://localhost:8080/realms/my-realm/protocol/openid-connect/auth
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - keycloak
+      - redis
+      - gateway
+    networks:
+      - sec-network
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: gateway
+    ports:
+      - "8888:8888"
+    environment:
+      - SPRING_REDIS_HOST=redis
+      - ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - LOKI_URL=http://loki:3100
+      - PROFILE_SERVICE_URL=http://profile-service:8082
+      - ORDER_SERVICE_URL=http://order-service:8083
+      - ADMIN_SERVICE_URL=http://keycloak-admin-service:8084
+      - KEYCLOAK_ISSUER_URI=http://localhost:8080/realms/my-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/my-realm/protocol/openid-connect/certs
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - redis
+      - zipkin
+    networks:
+      - sec-network
+
+  profile-service:
+    build:
+      context: .
+      dockerfile: profile-service/Dockerfile
+    container_name: profile-service
+    ports:
+      - "8082:8082"
+    environment:
+      - DATABASE_URL=jdbc:postgresql://postgres-profile:5432/profile_db
+      - DATABASE_USERNAME=profile_user
+      - DATABASE_PASSWORD=profile_password
+      - ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - KEYCLOAK_ADMIN_SERVICE_URL=http://keycloak-admin-service:8084/api
+      - KEYCLOAK_ISSUER_URI=http://localhost:8080/realms/my-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/my-realm/protocol/openid-connect/certs
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - postgres-profile
+      - zipkin
+    networks:
+      - sec-network
+
+  order-service:
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
+    container_name: order-service
+    ports:
+      - "8083:8083"
+    environment:
+      - DATABASE_URL=jdbc:postgresql://postgres-order:5432/order_db
+      - DATABASE_USERNAME=order_user
+      - DATABASE_PASSWORD=order_password
+      - ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - KEYCLOAK_ISSUER_URI=http://localhost:8080/realms/my-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/my-realm/protocol/openid-connect/certs
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - postgres-order
+      - zipkin
+    networks:
+      - sec-network
+
+  keycloak-admin-service:
+    build:
+      context: .
+      dockerfile: keycloak-admin-service/Dockerfile
+    container_name: keycloak-admin-service
+    ports:
+      - "8084:8084"
+    environment:
+      - ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - KEYCLOAK_SERVER_URL=http://keycloak:8080
+      - KEYCLOAK_ISSUER_URI=http://localhost:8080/realms/my-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/my-realm/protocol/openid-connect/certs
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - keycloak
+      - zipkin
+    networks:
+      - sec-network
+
+# ==========================================
+# Volumes & Networks
+# ==========================================
+volumes:
+  keycloak_data:
+  postgres_data:
+  redis_data:
+  grafana-storage:
+  prometheus-data:
+  postgres_profile_data:
+  postgres_order_data:
+
+networks:
+  sec-network:
+    name: sec-network
+    driver: bridge
